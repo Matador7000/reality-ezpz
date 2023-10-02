@@ -19,10 +19,14 @@ def delete_user_ezpz(username):
   local_command = command + f'--delete-user {username}'
   run_command(local_command)
   return
-def add_user_ezpz(username):
-  local_command = command + f'--add-user {username}'
-  run_command(local_command)
-  return
+  
+def add_user_ezpz(username, ip_limit=None):
+    local_command = command + f'--add-user {username}'
+    if ip_limit:
+        local_command += f' --ip-limit {ip_limit}'
+    run_command(local_command)
+    return
+
 
 def run_command(command):
   process = subprocess.Popen(['/bin/bash', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -88,13 +92,32 @@ def delete_user(update, context, username):
   context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
 
 @restricted
+@restricted
+def set_account_validity(update, context):
+    if 'expected_input' in context.user_data and context.user_data['expected_input'] == 'username':
+        username = update.message.text
+        if username in get_users_ezpz():
+            update.message.reply_text(f'User "{username}" exists, try another username.')
+            add_user(update, context)
+            return
+        if not username_regex.match(username):
+            update.message.reply_text('Username can only contain A-Z, a-z, and 0-9, try another username.')
+            add_user(update, context)
+            return
+        context.user_data['temp_username'] = username  # Store the username
+        text = 'Enter the account validity in days (e.g., 30):'
+        context.user_data['expected_input'] = 'account_validity'
+        context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+    else:
+        start(update, context)
+
+@restricted
 def add_user(update, context):
-  text = 'Enter the username:'
-  keyboard = []
-  keyboard.append([InlineKeyboardButton('Cancel', callback_data='cancel')])
-  reply_markup = InlineKeyboardMarkup(keyboard)
-  context.user_data['expected_input'] = 'username'
-  context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
+    text = 'Enter the username:'
+    context.user_data['expected_input'] = 'username'
+    context.user_data['temp_username'] = None  # Temporary store for username
+    context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+
 
 @restricted
 def approve_delete(update, context, username):
@@ -139,22 +162,25 @@ def button(update, context):
 
 @restricted
 def user_input(update, context):
-  if 'expected_input' in context.user_data:
-    expected_input = context.user_data['expected_input']
-    del context.user_data['expected_input']
-    if expected_input == 'username':
-      username = update.message.text
-      if username in get_users_ezpz():
-        update.message.reply_text(f'User "{username}" exists, try another username.')
-        add_user(update, context)
-        return
-      if not username_regex.match(username):
-        update.message.reply_text('Username can only contains A-Z, a-z and 0-9, try another username.')
-        add_user(update, context)
-        return
-      add_user_ezpz(username)
-      update.message.reply_text(f'User "{username}" is created.')
-      show_user(update, context, username)
+    if 'expected_input' in context.user_data:
+        expected_input = context.user_data['expected_input']
+        if expected_input == 'username':
+            # ...
+        elif expected_input == 'account_validity':
+            account_validity = update.message.text
+            if not account_validity.isdigit():
+                update.message.reply_text('Account validity must be a number of days. Please enter a valid number.')
+                set_account_validity(update, context)
+                return
+            username = context.user_data['temp_username']  # Retrieve the stored username
+            add_user_ezpz(username, ip_limit=None, account_validity=int(account_validity))
+            update.message.reply_text(f'User "{username}" is created with {account_validity} days of validity.')
+            show_user(update, context, username)
+        else:
+            start(update, context)
+    else:
+        start(update, context)
+
 
 start_handler = CommandHandler('start', start)
 button_handler = CallbackQueryHandler(button)
